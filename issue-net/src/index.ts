@@ -59,6 +59,7 @@ const BotLayer = Layer.effectDiscard(
         const repository = new Repository({
           authorName,
           repoName,
+          lastCheck: new Date(),
         });
 
         yield* repoService.add(repository);

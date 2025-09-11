@@ -3,6 +3,7 @@ import { Data, Effect, Context, Layer } from "effect";
 export class Repository extends Data.TaggedClass("Repository")<{
   repoName: string;
   authorName: string;
+  lastCheck: Date;
 }> {}
 
 interface RepositoryService {
