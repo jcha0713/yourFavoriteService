@@ -6,6 +6,7 @@ import { Config, Effect, Layer, Logger, LogLevel } from "effect";
 import { DatabaseLive } from "./database";
 import { GitHubServiceLive } from "./github";
 import { IssueMonitor, MonitorService, MonitorServiceLive } from "./monitor";
+import { NotificationServiceLive } from "./notification";
 
 const DiscordLayer = DiscordIxLive.pipe(
   Layer.provide([
@@ -52,15 +53,23 @@ const BotLayer = Layer.effectDiscard(
             type: Discord.ApplicationCommandOptionType.STRING,
             required: true,
           },
+          {
+            name: "channel",
+            description: "Discord channel for issue notifications",
+            type: Discord.ApplicationCommandOptionType.CHANNEL,
+            required: true,
+          },
         ],
       },
       Effect.fn("monitorStart.command")(function* (ix) {
         const name = ix.optionValue("name");
         const url = ix.optionValue("url");
+        const channelId = ix.optionValue("channel");
 
         const monitor = new IssueMonitor({
           name,
           url,
+          channelId,
           lastCheck: new Date(),
           status: "running",
         });
@@ -163,6 +172,7 @@ const BotLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(MonitorServiceLive),
+  Layer.provide(NotificationServiceLive),
   Layer.provide(GitHubServiceLive),
   Layer.provide(DatabaseLive),
   Layer.provide(DiscordLayer),

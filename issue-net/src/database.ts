@@ -31,6 +31,7 @@ export const DatabaseLive = Layer.effect(
         name TEXT NOT NULL,
         url TEXT NOT NULL,
         last_check TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
         filters TEXT,
         status TEXT DEFAULT 'stopped',
         PRIMARY KEY (name, url)
@@ -46,14 +47,14 @@ export const DatabaseLive = Layer.effect(
         Effect.sync(() => {
           const insertMonitor = db.prepare(`
             INSERT INTO monitors (name, url, last_check, filters, status)
-            VALUES (?, ?, ?, ?, ?)
-          `);
+              INSERT INTO monitors (name, url, last_check, channel_id, filters, status)
+              VALUES (?, ?, ?, ?, ?, ?)
           insertMonitor.run(
             monitor.name,
             monitor.url,
             monitor.lastCheck.toISOString(),
             monitor.filter ? JSON.stringify(monitor.filter) : null,
-            monitor.status || "stopped",
+              monitor.channelId,
           );
         }),
 
@@ -75,7 +76,7 @@ export const DatabaseLive = Layer.effect(
             url: string;
             last_check: string;
             filters: string | null;
-            status: string;
+              channel_id: string;
           }>;
 
           return rows.map(
@@ -84,7 +85,7 @@ export const DatabaseLive = Layer.effect(
                 name: row.name,
                 url: row.url,
                 lastCheck: new Date(row.last_check),
-                filter: row.filters ? JSON.parse(row.filters) : undefined,
+                  channelId: row.channel_id,
                 status: row.status as "running" | "stopped" | "error",
               }),
           );

@@ -1,6 +1,7 @@
 import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
 import { DatabaseService } from "./database";
 import { GitHubService, type IssueFilter } from "./github";
+import { NotificationService } from "./notification";
 
 export class IssueMonitor extends Data.TaggedClass("IssueMonitor")<{
   name: string;
@@ -24,6 +25,7 @@ export const MonitorServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DatabaseService;
     const githubService = yield* GitHubService;
+    const notificationService = yield* NotificationService;
 
     const activeMonitors = new Map<string, Fiber.RuntimeFiber<number, never>>();
 
@@ -107,22 +109,11 @@ export const MonitorServiceLive = Layer.effect(
             `Found ${issues.length} new issues in ${owner}/${repo}`,
           );
 
-          // TODO: Send Discord notification here
-          const issueList = issues
-            .slice(0, 3)
-            .map(
-              (issue) =>
-                `• **#${issue.number}**: ${issue.title}\n  👤 ${issue.author} | 🏷 ${issue.labels.join(", ") || "no labels"}`,
-            )
-            .join("\n");
-
-          const notificationContent = `🔍 **${owner}/${repo}**: ${issues.length} new issues\n${issueList}${
-            issues.length > 3 ? `\n...and ${issues.length - 3} more` : ""
-          }`;
-
-          yield* Effect.logInfo(
-            `Discord notification:\n${notificationContent}`,
-          );
+          // Send Discord notification
+          yield* notificationService.sendIssueNotification(channelId, issues, {
+            owner,
+            repo,
+          });
 
           const newTimestamp = new Date();
           yield* Ref.set(lastCheckRef, newTimestamp);
