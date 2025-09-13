@@ -2,7 +2,15 @@ import { FetchHttpClient } from "@effect/platform";
 import { BunRuntime, BunSocket } from "@effect/platform-bun";
 import { Discord, DiscordConfig, Ix } from "dfx";
 import { DiscordIxLive, InteractionsRegistry } from "dfx/gateway";
-import { Config, Effect, Layer, Logger, LogLevel, Option } from "effect";
+import {
+  Config,
+  Effect,
+  Either,
+  Layer,
+  Logger,
+  LogLevel,
+  Option,
+} from "effect";
 import { DatabaseLive } from "./database";
 import { GitHubServiceLive } from "./github";
 import { IssueMonitor, MonitorService, MonitorServiceLive } from "./monitor";
@@ -67,6 +75,20 @@ const BotLayer = Layer.effectDiscard(
             ],
           },
           {
+            name: "restart",
+            description: "Restart a stopped monitor",
+            type: Discord.ApplicationCommandOptionType.SUB_COMMAND,
+            options: [
+              {
+                name: "name",
+                description: "Monitor name to restart",
+                type: Discord.ApplicationCommandOptionType.STRING,
+                required: true,
+                autocomplete: true,
+              },
+            ],
+          },
+          {
             name: "stop",
             description: "Stop a running monitor",
             type: Discord.ApplicationCommandOptionType.SUB_COMMAND,
@@ -120,11 +142,16 @@ const BotLayer = Layer.effectDiscard(
             );
 
             if (result._tag === "Left") {
+              const errorMessage =
+                result.left._tag === "DuplicateMonitorName"
+                  ? result.left.message
+                  : `Failed to start monitor: ${result.left.message}`;
+
               return {
                 type: Discord.InteractionCallbackTypes
                   .CHANNEL_MESSAGE_WITH_SOURCE,
                 data: {
-                  content: `Failed to start monitor: ${result.left.message}`,
+                  content: errorMessage,
                 },
               };
             }
@@ -134,6 +161,31 @@ const BotLayer = Layer.effectDiscard(
                 .CHANNEL_MESSAGE_WITH_SOURCE,
               data: {
                 content: `Started monitoring **${name}** for new issues`,
+              },
+            };
+          }),
+
+          restart: Effect.gen(function* () {
+            const name = ix.optionValue("name");
+            const restartResult = yield* Effect.either(
+              monitorService.restartMonitor(name),
+            );
+
+            if (Either.isLeft(restartResult)) {
+              return {
+                type: Discord.InteractionCallbackTypes
+                  .CHANNEL_MESSAGE_WITH_SOURCE,
+                data: {
+                  content: `Failed to restart monitor: ${restartResult.left.message}`,
+                },
+              };
+            }
+
+            return {
+              type: Discord.InteractionCallbackTypes
+                .CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: `Restarted monitoring **${name}** for new issues`,
               },
             };
           }),
@@ -201,13 +253,32 @@ const BotLayer = Layer.effectDiscard(
     const monitorAutocomplete = Ix.autocomplete(
       Ix.option("monitor", "name"),
       Effect.gen(function* () {
+        const interaction = yield* Ix.Interaction;
+        const commandData =
+          interaction.data as Discord.APIChatInputApplicationCommandInteractionData;
+        const subcommandName = commandData.options?.[0]?.name;
+
+        if (subcommandName === "start") {
+          return Ix.response({
+            type: Discord.InteractionCallbackTypes
+              .APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+            data: { choices: [] },
+          });
+        }
+
         const query = String(yield* Ix.focusedOptionValue);
         const allMonitors = yield* monitorService.listMonitors();
-        const runningMonitors = allMonitors.filter(
-          (m) => m.status === "running",
-        );
 
-        const filtered = runningMonitors
+        const filtered = allMonitors
+          .filter((monitor) => {
+            if (subcommandName === "stop") {
+              return monitor.status === "running";
+            }
+            if (subcommandName === "restart") {
+              return monitor.status !== "running";
+            }
+            return true;
+          })
           .filter((monitor) =>
             monitor.name.toLowerCase().includes(query.toLowerCase()),
           )

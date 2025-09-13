@@ -1,4 +1,13 @@
-import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Ref,
+  Schedule,
+} from "effect";
 import { type DatabaseError, DatabaseService } from "./database";
 import { GitHubService, type IssueFilter } from "./github";
 import { NotificationService } from "./notification";
@@ -13,7 +22,14 @@ export class MonitorNotFound extends Data.TaggedError("MonitorNotFound")<{
 
 export class FiberStartError extends Data.TaggedError("FiberStartError")<{
   monitorName: string;
-  cause: string;
+  message: string;
+}> {}
+
+export class DuplicateMonitorName extends Data.TaggedError(
+  "DuplicateMonitorName",
+)<{
+  name: string;
+  message: string;
 }> {}
 
 export class IssueMonitor extends Data.TaggedClass("IssueMonitor")<{
@@ -28,10 +44,22 @@ export class IssueMonitor extends Data.TaggedClass("IssueMonitor")<{
 interface MonitorService {
   startMonitor: (
     monitor: IssueMonitor,
-  ) => Effect.Effect<void, InvalidURL | FiberStartError | DatabaseError>;
+  ) => Effect.Effect<
+    void,
+    InvalidURL | FiberStartError | DatabaseError | DuplicateMonitorName
+  >;
+  restartMonitor: (
+    name: string,
+  ) => Effect.Effect<
+    void,
+    InvalidURL | FiberStartError | MonitorNotFound | DatabaseError
+  >;
   stopMonitor: (
     name: string,
   ) => Effect.Effect<void, MonitorNotFound | DatabaseError>;
+  getMonitor: (
+    name: string,
+  ) => Effect.Effect<IssueMonitor, MonitorNotFound | DatabaseError>;
   listMonitors: () => Effect.Effect<IssueMonitor[], DatabaseError>;
 }
 
@@ -88,6 +116,7 @@ export const MonitorServiceLive = Layer.effect(
           ),
         );
 
+        // NOTE: should we update or check for existing fiber?
         activeMonitors.set(monitor.name, fiber);
         yield* Effect.logInfo(`Monitor fiber started: ${monitor.name}`);
       });
@@ -168,6 +197,14 @@ export const MonitorServiceLive = Layer.effect(
     return {
       startMonitor: (monitor: IssueMonitor) =>
         Effect.gen(function* () {
+          const maybeMonitor = yield* db.getMonitor(monitor.name);
+          if (Option.isSome(maybeMonitor)) {
+            return yield* new DuplicateMonitorName({
+              name: monitor.name,
+              message: `Monitor name **${monitor.name}** already exists. Please choose a different name.`,
+            });
+          }
+
           yield* Effect.logInfo(`Starting monitor: ${monitor.name}`);
 
           const runningMonitor = new IssueMonitor({
@@ -175,24 +212,67 @@ export const MonitorServiceLive = Layer.effect(
             status: "running",
           });
 
+          // TODO: use correct github url
           yield* startMonitorFiber(runningMonitor);
-          yield* db.saveMonitor(runningMonitor);
+
+          yield* db.saveMonitor(runningMonitor).pipe(
+            Effect.mapError((error) => {
+              if (
+                error._tag === "DatabaseError" &&
+                (error.message.includes("UNIQUE constraint failed") ||
+                  error.message.includes("PRIMARY KEY constraint failed"))
+              ) {
+                return new DuplicateMonitorName({
+                  name: monitor.name,
+                  message: `Found duplicate monitor when saving it`,
+                });
+              }
+              return error;
+            }),
+          );
+
+          yield* Effect.logInfo(
+            `Monitor started and added to db: ${monitor.name}`,
+          );
+        }),
+
+      restartMonitor: (name: string) =>
+        Effect.gen(function* () {
+          const maybeMonitor = yield* db.getMonitor(name);
+          if (Option.isNone(maybeMonitor)) {
+            return yield* new MonitorNotFound({ name });
+          }
+
+          yield* startMonitorFiber(maybeMonitor.value);
+          yield* db.updateMonitorStatus(name, "running");
         }),
 
       stopMonitor: (name: string) =>
         Effect.gen(function* () {
-          const fiber = activeMonitors.get(name);
-
-          if (!fiber) {
+          const maybeMonitor = yield* db.getMonitor(name);
+          if (Option.isNone(maybeMonitor)) {
             return yield* new MonitorNotFound({ name });
           }
 
-          yield* Fiber.interrupt(fiber);
-          activeMonitors.delete(name);
+          const fiber = activeMonitors.get(name);
+
+          if (fiber) {
+            yield* Fiber.interrupt(fiber);
+            activeMonitors.delete(name);
+          }
 
           yield* db.updateMonitorStatus(name, "stopped");
 
           yield* Effect.logInfo(`Stopped monitor: ${name}`);
+        }),
+
+      getMonitor: (name: string) =>
+        Effect.gen(function* () {
+          const maybeMonitor = yield* db.getMonitor(name);
+          return yield* Option.match(maybeMonitor, {
+            onNone: () => Effect.fail(new MonitorNotFound({ name })),
+            onSome: (monitor) => Effect.succeed(monitor),
+          });
         }),
 
       listMonitors: () =>

@@ -1,5 +1,5 @@
 import { DiscordREST } from "dfx";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { GitHubIssue } from "./github";
 
 interface NotificationService {

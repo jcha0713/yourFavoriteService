@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Option } from "effect";
 import { IssueMonitor } from "./monitor.js";
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   operation: string;
-  cause: string;
+  message: string;
 }> {}
 
 export interface DatabaseService {
@@ -12,6 +12,9 @@ export interface DatabaseService {
 
   saveMonitor: (monitor: IssueMonitor) => Effect.Effect<void, DatabaseError>;
   deleteMonitor: (name: string) => Effect.Effect<void, DatabaseError>;
+  getMonitor: (
+    name: string,
+  ) => Effect.Effect<Option.Option<IssueMonitor>, DatabaseError>;
   getAllMonitors: () => Effect.Effect<IssueMonitor[], DatabaseError>;
   updateMonitorLastCheck: (
     name: string,
@@ -33,13 +36,12 @@ export const DatabaseLive = Layer.effect(
 
     db.query(`
       CREATE TABLE IF NOT EXISTS monitors (
-        name TEXT NOT NULL,
+        name TEXT PRIMARY KEY NOT NULL,
         url TEXT NOT NULL,
         last_check TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         filters TEXT,
-        status TEXT DEFAULT 'stopped',
-        PRIMARY KEY (name, url)
+        status TEXT DEFAULT 'stopped'
       )
     `).run();
 
@@ -47,7 +49,6 @@ export const DatabaseLive = Layer.effect(
 
     return {
       db,
-
       saveMonitor: (monitor: IssueMonitor) =>
         Effect.try({
           try: () => {
@@ -67,7 +68,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "saveMonitor",
-              cause: error instanceof Error ? error.message : String(error),
+              message: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -82,7 +83,47 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "deleteMonitor",
-              cause: error instanceof Error ? error.message : String(error),
+              message: error instanceof Error ? error.message : String(error),
+            }),
+        }),
+
+      getMonitor: (name: string) =>
+        Effect.try({
+          try: () => {
+            const selectMonitor = db.prepare(`
+              SELECT name, url, last_check, channel_id, filters, status
+              FROM monitors
+              WHERE name = ?
+            `);
+            const row = selectMonitor.get(name) as
+              | {
+                  name: string;
+                  url: string;
+                  last_check: string;
+                  channel_id: string;
+                  filters: string | null;
+                  status: string;
+                }
+              | undefined;
+
+            return Option.fromNullable(row).pipe(
+              Option.map(
+                (row) =>
+                  new IssueMonitor({
+                    name: row.name,
+                    url: row.url,
+                    lastCheck: new Date(row.last_check),
+                    channelId: row.channel_id,
+                    filter: row.filters ? JSON.parse(row.filters) : undefined,
+                    status: row.status as "running" | "stopped" | "error",
+                  }),
+              ),
+            );
+          },
+          catch: (error) =>
+            new DatabaseError({
+              operation: "getMonitor",
+              message: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -116,7 +157,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "getAllMonitors",
-              cause: error instanceof Error ? error.message : String(error),
+              message: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -133,7 +174,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "updateMonitorLastCheck",
-              cause: error instanceof Error ? error.message : String(error),
+              message: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -153,7 +194,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "updateMonitorStatus",
-              cause: error instanceof Error ? error.message : String(error),
+              message: error instanceof Error ? error.message : String(error),
             }),
         }),
     };
