@@ -1,20 +1,36 @@
 import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
-import { DatabaseService } from "./database";
+import { DatabaseService, DatabaseError } from "./database";
 import { GitHubService, type IssueFilter } from "./github";
 import { NotificationService } from "./notification";
+
+export class InvalidURL extends Data.TaggedError("InvalidURL")<{
+  message: string;
+}> {}
+
+export class MonitorNotFound extends Data.TaggedError("MonitorNotFound")<{
+  name: string;
+}> {}
+
+export class FiberStartError extends Data.TaggedError("FiberStartError")<{
+  monitorName: string;
+  cause: string;
+}> {}
 
 export class IssueMonitor extends Data.TaggedClass("IssueMonitor")<{
   name: string;
   url: string;
   lastCheck: Date;
+  channelId: string;
   filter?: IssueFilter;
   status?: "running" | "stopped" | "error";
 }> {}
 
 interface MonitorService {
-  startMonitor: (monitor: IssueMonitor) => Effect.Effect<void, Error>;
-  stopMonitor: (name: string) => Effect.Effect<void, Error>;
-  listMonitors: () => Effect.Effect<IssueMonitor[]>;
+  startMonitor: (
+    monitor: IssueMonitor,
+  ) => Effect.Effect<void, InvalidURL | FiberStartError | DatabaseError>;
+  stopMonitor: (name: string) => Effect.Effect<void, MonitorNotFound | DatabaseError>;
+  listMonitors: () => Effect.Effect<IssueMonitor[], DatabaseError>;
 }
 
 export const MonitorService =
@@ -27,7 +43,7 @@ export const MonitorServiceLive = Layer.effect(
     const githubService = yield* GitHubService;
     const notificationService = yield* NotificationService;
 
-    const activeMonitors = new Map<string, Fiber.RuntimeFiber<number, never>>();
+    const activeMonitors = new Map<string, Fiber.RuntimeFiber<number, DatabaseError>>();
 
     const parseGitHubUrl = (url: string) => {
       const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
@@ -38,10 +54,12 @@ export const MonitorServiceLive = Layer.effect(
       Effect.gen(function* () {
         const parsed = parseGitHubUrl(monitor.url);
         if (!parsed || !parsed.owner || !parsed.repo) {
-          yield* Effect.logError(
-            `Invalid GitHub URL for monitor ${monitor.name}: ${monitor.url}`,
+          yield* Effect.logInfo(
+            `Invalid GitHub URL for monitor ${monitor.name} ${monitor.url}`,
           );
-          return;
+          return yield* new InvalidURL({
+            message: `**Invalid GitHub URL**: ${monitor.url}`,
+          });
         }
 
         const { owner, repo } = parsed;
@@ -58,6 +76,7 @@ export const MonitorServiceLive = Layer.effect(
               repo,
               monitor.name,
               lastCheckRef,
+              monitor.channelId,
               monitor.filter,
             ),
             Schedule.spaced("1 minutes"),
@@ -73,6 +92,7 @@ export const MonitorServiceLive = Layer.effect(
       repo: string,
       monitorName: string,
       lastCheckRef: Ref.Ref<Date>,
+      channelId: string,
       filter?: IssueFilter,
     ) =>
       Effect.gen(function* () {
@@ -150,9 +170,8 @@ export const MonitorServiceLive = Layer.effect(
             status: "running",
           });
 
-          yield* db.saveMonitor(runningMonitor);
-
           yield* startMonitorFiber(runningMonitor);
+          yield* db.saveMonitor(runningMonitor);
         }),
 
       stopMonitor: (name: string) =>
@@ -160,9 +179,7 @@ export const MonitorServiceLive = Layer.effect(
           const fiber = activeMonitors.get(name);
 
           if (!fiber) {
-            return yield* Effect.fail(
-              new Error(`Monitor '${name}' is not running`),
-            );
+            return yield* new MonitorNotFound({ name });
           }
 
           yield* Fiber.interrupt(fiber);

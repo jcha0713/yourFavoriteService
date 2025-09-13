@@ -74,17 +74,18 @@ const BotLayer = Layer.effectDiscard(
           status: "running",
         });
 
-        yield* monitorService.startMonitor(monitor).pipe(
-          Effect.catchAll((error) =>
-            Effect.succeed({
-              type: Discord.InteractionCallbackTypes
-                .CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `Failed to start monitor: ${error.message}`,
-              },
-            }),
-          ),
+        const result = yield* Effect.either(
+          monitorService.startMonitor(monitor),
         );
+
+        if (result._tag === "Left") {
+          return {
+            type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `Failed to start monitor: ${result.left.message}`,
+            },
+          };
+        }
 
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -111,17 +112,18 @@ const BotLayer = Layer.effectDiscard(
       Effect.fn("monitorStop.command")(function* (ix) {
         const name = ix.optionValue("name");
 
-        yield* monitorService.stopMonitor(name).pipe(
-          Effect.catchAll((error) =>
-            Effect.succeed({
-              type: Discord.InteractionCallbackTypes
-                .CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `Failed to stop monitor: ${error.message}`,
-              },
-            }),
-          ),
+        const result = yield* Effect.either(
+          monitorService.stopMonitor(name),
         );
+
+        if (result._tag === "Left") {
+          return {
+            type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `Failed to stop monitor: ${result.left.message}`,
+            },
+          };
+        }
 
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,

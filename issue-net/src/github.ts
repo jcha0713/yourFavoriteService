@@ -1,6 +1,14 @@
 import { Octokit } from "@octokit/core";
 import { Context, Data, Effect, Layer } from "effect";
 
+export class NoGitHubToken extends Data.TaggedError("NoGitHubToken")<{
+  message: string;
+}> {}
+
+export class GitHubAPIFail extends Data.TaggedError("GitHubAPIFail")<{
+  message: string;
+}> {}
+
 export interface IssueFilter {
   since?: string; // ISO date string
   assigned?: boolean; // true = any assigned, false = unassigned only
@@ -23,7 +31,7 @@ interface GitHubService {
     owner: string,
     repoName: string,
     filter?: IssueFilter,
-  ) => Effect.Effect<GitHubIssue[], Error>;
+  ) => Effect.Effect<GitHubIssue[], NoGitHubToken | GitHubAPIFail>;
 }
 
 export const GitHubService = Context.GenericTag<GitHubService>("GitHubService");
@@ -32,6 +40,14 @@ export const GitHubServiceLive = Layer.effect(
   GitHubService,
   Effect.gen(function* () {
     const githubToken = Bun.env.GITHUB_TOKEN;
+
+    if (!githubToken) {
+      return yield* new NoGitHubToken({
+        message:
+          "GitHub token required: Create token at https://github.com/settings/personal-access-tokens and add GITHUB_TOKEN=your_token to .env file",
+      });
+    }
+
     const octokit = new Octokit({ auth: githubToken });
 
     return {
@@ -53,7 +69,8 @@ export const GitHubServiceLive = Layer.effect(
                 labels: filter?.labels?.join(","),
                 per_page: 100,
               }),
-            catch: (error) => new Error(`GitHub API failed: ${error}`),
+            catch: (error) =>
+              new GitHubAPIFail({ message: `GitHub API failed: ${error}` }),
           });
 
           const issues = response.data.map(

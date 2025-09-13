@@ -1,21 +1,26 @@
 import { Database } from "bun:sqlite";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { IssueMonitor } from "./monitor.js";
+
+export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+  operation: string;
+  cause: string;
+}> {}
 
 export interface DatabaseService {
   db: Database;
 
-  saveMonitor: (monitor: IssueMonitor) => Effect.Effect<void>;
-  deleteMonitor: (name: string) => Effect.Effect<void>;
-  getAllMonitors: () => Effect.Effect<IssueMonitor[]>;
+  saveMonitor: (monitor: IssueMonitor) => Effect.Effect<void, DatabaseError>;
+  deleteMonitor: (name: string) => Effect.Effect<void, DatabaseError>;
+  getAllMonitors: () => Effect.Effect<IssueMonitor[], DatabaseError>;
   updateMonitorLastCheck: (
     name: string,
     lastCheck: Date,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, DatabaseError>;
   updateMonitorStatus: (
     name: string,
     status: "running" | "stopped" | "error",
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, DatabaseError>;
 }
 
 export const DatabaseService =
@@ -44,71 +49,104 @@ export const DatabaseLive = Layer.effect(
       db,
 
       saveMonitor: (monitor: IssueMonitor) =>
-        Effect.sync(() => {
-          const insertMonitor = db.prepare(`
-            INSERT INTO monitors (name, url, last_check, filters, status)
+        Effect.try({
+          try: () => {
+            const insertMonitor = db.prepare(`
               INSERT INTO monitors (name, url, last_check, channel_id, filters, status)
               VALUES (?, ?, ?, ?, ?, ?)
-          insertMonitor.run(
-            monitor.name,
-            monitor.url,
-            monitor.lastCheck.toISOString(),
-            monitor.filter ? JSON.stringify(monitor.filter) : null,
+            `);
+            insertMonitor.run(
+              monitor.name,
+              monitor.url,
+              monitor.lastCheck.toISOString(),
               monitor.channelId,
-          );
+              monitor.filter ? JSON.stringify(monitor.filter) : null,
+              monitor.status || "stopped",
+            );
+          },
+          catch: (error) => new DatabaseError({
+            operation: "saveMonitor",
+            cause: error instanceof Error ? error.message : String(error),
+          }),
         }),
 
       deleteMonitor: (name: string) =>
-        Effect.sync(() => {
-          const deleteMonitor = db.prepare(`
-            DELETE FROM monitors WHERE name = ?
-          `);
-          deleteMonitor.run(name);
+        Effect.try({
+          try: () => {
+            const deleteMonitor = db.prepare(`
+              DELETE FROM monitors WHERE name = ?
+            `);
+            deleteMonitor.run(name);
+          },
+          catch: (error) => new DatabaseError({
+            operation: "deleteMonitor",
+            cause: error instanceof Error ? error.message : String(error),
+          }),
         }),
 
       getAllMonitors: () =>
-        Effect.sync(() => {
-          const selectAllMonitors = db.prepare(`
-            SELECT name, url, last_check, filters, status FROM monitors
-          `);
-          const rows = selectAllMonitors.all() as Array<{
-            name: string;
-            url: string;
-            last_check: string;
-            filters: string | null;
+        Effect.try({
+          try: () => {
+            const selectAllMonitors = db.prepare(`
+              SELECT name, url, last_check, channel_id, filters, status FROM monitors
+            `);
+            const rows = selectAllMonitors.all() as Array<{
+              name: string;
+              url: string;
+              last_check: string;
               channel_id: string;
-          }>;
+              filters: string | null;
+              status: string;
+            }>;
 
-          return rows.map(
-            (row) =>
-              new IssueMonitor({
-                name: row.name,
-                url: row.url,
-                lastCheck: new Date(row.last_check),
+            return rows.map(
+              (row) =>
+                new IssueMonitor({
+                  name: row.name,
+                  url: row.url,
+                  lastCheck: new Date(row.last_check),
                   channelId: row.channel_id,
-                status: row.status as "running" | "stopped" | "error",
-              }),
-          );
+                  filter: row.filters ? JSON.parse(row.filters) : undefined,
+                  status: row.status as "running" | "stopped" | "error",
+                }),
+            );
+          },
+          catch: (error) => new DatabaseError({
+            operation: "getAllMonitors",
+            cause: error instanceof Error ? error.message : String(error),
+          }),
         }),
 
       updateMonitorLastCheck: (name: string, lastCheck: Date) =>
-        Effect.sync(() => {
-          const updateRepositoryLastCheck = db.prepare(`
-           UPDATE monitors
-           SET last_check = ?
-           WHERE name = ?
-         `);
-          updateRepositoryLastCheck.run(lastCheck.toISOString(), name);
+        Effect.try({
+          try: () => {
+            const updateRepositoryLastCheck = db.prepare(`
+             UPDATE monitors
+             SET last_check = ?
+             WHERE name = ?
+           `);
+            updateRepositoryLastCheck.run(lastCheck.toISOString(), name);
+          },
+          catch: (error) => new DatabaseError({
+            operation: "updateMonitorLastCheck",
+            cause: error instanceof Error ? error.message : String(error),
+          }),
         }),
 
       updateMonitorStatus: (name: string, status: "running" | "stopped" | "error") =>
-        Effect.sync(() => {
-          const updateMonitorStatus = db.prepare(`
-            UPDATE monitors
-            SET status = ?
-            WHERE name = ?
-          `);
-          updateMonitorStatus.run(status, name);
+        Effect.try({
+          try: () => {
+            const updateMonitorStatus = db.prepare(`
+              UPDATE monitors
+              SET status = ?
+              WHERE name = ?
+            `);
+            updateMonitorStatus.run(status, name);
+          },
+          catch: (error) => new DatabaseError({
+            operation: "updateMonitorStatus",
+            cause: error instanceof Error ? error.message : String(error),
+          }),
         }),
     };
   }),
