@@ -2,7 +2,7 @@ import { FetchHttpClient } from "@effect/platform";
 import { BunRuntime, BunSocket } from "@effect/platform-bun";
 import { Discord, DiscordConfig, Ix } from "dfx";
 import { DiscordIxLive, InteractionsRegistry } from "dfx/gateway";
-import { Config, Effect, Layer, Logger, LogLevel } from "effect";
+import { Config, Effect, Layer, Logger, LogLevel, Option } from "effect";
 import { DatabaseLive } from "./database";
 import { GitHubServiceLive } from "./github";
 import { IssueMonitor, MonitorService, MonitorServiceLive } from "./monitor";
@@ -112,9 +112,7 @@ const BotLayer = Layer.effectDiscard(
       Effect.fn("monitorStop.command")(function* (ix) {
         const name = ix.optionValue("name");
 
-        const result = yield* Effect.either(
-          monitorService.stopMonitor(name),
-        );
+        const result = yield* Effect.either(monitorService.stopMonitor(name));
 
         if (result._tag === "Left") {
           return {
@@ -138,17 +136,48 @@ const BotLayer = Layer.effectDiscard(
       {
         name: "monitor-list",
         description: "List all monitors and their status",
+        options: [
+          {
+            name: "status",
+            description: "Filter monitors by status",
+            type: Discord.ApplicationCommandOptionType.STRING,
+            required: false,
+            choices: [
+              {
+                name: "Running",
+                value: "running",
+              },
+              {
+                name: "Stopped",
+                value: "stopped",
+              },
+              {
+                name: "Error",
+                value: "error",
+              },
+            ],
+          },
+        ],
       },
       Effect.fn("monitorList.command")(function* (ix) {
+        const maybeFilter = ix.optionValueOptional("status");
         const monitors = yield* monitorService.listMonitors();
 
+        const allMonitors = Option.match(maybeFilter, {
+          onSome: (filter) =>
+            monitors.filter((monitor) => monitor.status === filter),
+          onNone: () => monitors,
+        });
+
         const content =
-          monitors.length === 0
-            ? "No monitors created yet. Use `/monitor-start` to add some!"
-            : `**All Monitors:**\n${monitors
+          allMonitors.length === 0
+            ? Option.isSome(maybeFilter)
+              ? `No monitors found with status: ${maybeFilter.value}`
+              : "No monitors created yet. Use `/monitor-start` to add some!"
+            : `**All Monitors\n${allMonitors
                 .map(
                   (monitor) =>
-                    `${monitor.status === "running" ? "🟢" : "🔴"} **${monitor.name}**: ${monitor.url}`,
+                    `**${monitor.name}** (${monitor.status}): ${monitor.url}`,
                 )
                 .join("\n")}`;
 
