@@ -64,10 +64,11 @@ export const DatabaseLive = Layer.effect(
               monitor.status || "stopped",
             );
           },
-          catch: (error) => new DatabaseError({
-            operation: "saveMonitor",
-            cause: error instanceof Error ? error.message : String(error),
-          }),
+          catch: (error) =>
+            new DatabaseError({
+              operation: "saveMonitor",
+              cause: error instanceof Error ? error.message : String(error),
+            }),
         }),
 
       deleteMonitor: (name: string) =>
@@ -78,10 +79,11 @@ export const DatabaseLive = Layer.effect(
             `);
             deleteMonitor.run(name);
           },
-          catch: (error) => new DatabaseError({
-            operation: "deleteMonitor",
-            cause: error instanceof Error ? error.message : String(error),
-          }),
+          catch: (error) =>
+            new DatabaseError({
+              operation: "deleteMonitor",
+              cause: error instanceof Error ? error.message : String(error),
+            }),
         }),
 
       getAllMonitors: () =>
@@ -111,10 +113,11 @@ export const DatabaseLive = Layer.effect(
                 }),
             );
           },
-          catch: (error) => new DatabaseError({
-            operation: "getAllMonitors",
-            cause: error instanceof Error ? error.message : String(error),
-          }),
+          catch: (error) =>
+            new DatabaseError({
+              operation: "getAllMonitors",
+              cause: error instanceof Error ? error.message : String(error),
+            }),
         }),
 
       updateMonitorLastCheck: (name: string, lastCheck: Date) =>
@@ -127,13 +130,17 @@ export const DatabaseLive = Layer.effect(
            `);
             updateRepositoryLastCheck.run(lastCheck.toISOString(), name);
           },
-          catch: (error) => new DatabaseError({
-            operation: "updateMonitorLastCheck",
-            cause: error instanceof Error ? error.message : String(error),
-          }),
+          catch: (error) =>
+            new DatabaseError({
+              operation: "updateMonitorLastCheck",
+              cause: error instanceof Error ? error.message : String(error),
+            }),
         }),
 
-      updateMonitorStatus: (name: string, status: "running" | "stopped" | "error") =>
+      updateMonitorStatus: (
+        name: string,
+        status: "running" | "stopped" | "error",
+      ) =>
         Effect.try({
           try: () => {
             const updateMonitorStatus = db.prepare(`
@@ -143,10 +150,11 @@ export const DatabaseLive = Layer.effect(
             `);
             updateMonitorStatus.run(status, name);
           },
-          catch: (error) => new DatabaseError({
-            operation: "updateMonitorStatus",
-            cause: error instanceof Error ? error.message : String(error),
-          }),
+          catch: (error) =>
+            new DatabaseError({
+              operation: "updateMonitorStatus",
+              cause: error instanceof Error ? error.message : String(error),
+            }),
         }),
     };
   }),

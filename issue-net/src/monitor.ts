@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
-import { DatabaseService, DatabaseError } from "./database";
+import { type DatabaseError, DatabaseService } from "./database";
 import { GitHubService, type IssueFilter } from "./github";
 import { NotificationService } from "./notification";
 
@@ -29,7 +29,9 @@ interface MonitorService {
   startMonitor: (
     monitor: IssueMonitor,
   ) => Effect.Effect<void, InvalidURL | FiberStartError | DatabaseError>;
-  stopMonitor: (name: string) => Effect.Effect<void, MonitorNotFound | DatabaseError>;
+  stopMonitor: (
+    name: string,
+  ) => Effect.Effect<void, MonitorNotFound | DatabaseError>;
   listMonitors: () => Effect.Effect<IssueMonitor[], DatabaseError>;
 }
 
@@ -43,7 +45,10 @@ export const MonitorServiceLive = Layer.effect(
     const githubService = yield* GitHubService;
     const notificationService = yield* NotificationService;
 
-    const activeMonitors = new Map<string, Fiber.RuntimeFiber<number, DatabaseError>>();
+    const activeMonitors = new Map<
+      string,
+      Fiber.RuntimeFiber<number, DatabaseError>
+    >();
 
     const parseGitHubUrl = (url: string) => {
       const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
