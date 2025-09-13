@@ -3,7 +3,9 @@ import { BunRuntime, BunSocket } from "@effect/platform-bun";
 import { Discord, DiscordConfig, Ix } from "dfx";
 import { DiscordIxLive, InteractionsRegistry } from "dfx/gateway";
 import { Config, Effect, Layer, Logger, LogLevel } from "effect";
-import { Repository, RepositoryLive, RepositoryService } from "./repository.js";
+import { DatabaseLive } from "./database";
+import { GitHubServiceLive } from "./github";
+import { IssueMonitor, MonitorService, MonitorServiceLive } from "./monitor";
 
 const DiscordLayer = DiscordIxLive.pipe(
   Layer.provide([
@@ -18,7 +20,7 @@ const DiscordLayer = DiscordIxLive.pipe(
 const BotLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* InteractionsRegistry;
-    const repoService = yield* RepositoryService;
+    const monitorService = yield* MonitorService;
 
     const ping = Ix.global(
       {
@@ -33,107 +35,116 @@ const BotLayer = Layer.effectDiscard(
       }),
     );
 
-    const repoAdd = Ix.global(
+    const monitorStart = Ix.global(
       {
-        name: "repo-add",
-        description: "Add a GitHub repository to track",
+        name: "monitor-start",
+        description: "Start monitoring a GitHub repository for new issues",
         options: [
           {
-            name: "author",
-            description: "Repository owner/author name",
+            name: "name",
+            description: "Monitor name (e.g., 'Gleam Issues')",
             type: Discord.ApplicationCommandOptionType.STRING,
             required: true,
           },
           {
-            name: "repo",
-            description: "Repository name",
+            name: "url",
+            description: "GitHub repository URL",
             type: Discord.ApplicationCommandOptionType.STRING,
             required: true,
           },
         ],
       },
-      Effect.fn("repoAdd.command")(function* (ix) {
-        const authorName = ix.optionValue("author");
-        const repoName = ix.optionValue("repo");
+      Effect.fn("monitorStart.command")(function* (ix) {
+        const name = ix.optionValue("name");
+        const url = ix.optionValue("url");
 
-        const repository = new Repository({
-          authorName,
-          repoName,
+        const monitor = new IssueMonitor({
+          name,
+          url,
           lastCheck: new Date(),
+          status: "running",
         });
 
-        yield* repoService.add(repository);
+        yield* monitorService.startMonitor(monitor).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              type: Discord.InteractionCallbackTypes
+                .CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: `Failed to start monitor: ${error.message}`,
+              },
+            }),
+          ),
+        );
 
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: "Repository added successfully!",
+            content: `Started monitoring **${name}** for new issues`,
           },
         };
       }),
     );
 
-    const repoList = Ix.global(
+    const monitorStop = Ix.global(
       {
-        name: "repo-list",
-        description: "List all repository you're tracking",
-      },
-      Effect.fn("repoList.command")(function* (ix) {
-        const repositories = yield* repoService.getAll();
-
-        return {
-          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content:
-              repositories.length === 0
-                ? "No repositories tracked yet. Use `/repo-add` to add some!"
-                : `**Tracked Repositories:**\n${repositories
-                    .map((repo) => `• ${repo.authorName}/${repo.repoName}`)
-                    .join("\n")}`,
-          },
-        };
-      }),
-    );
-
-    const repoRemove = Ix.global(
-      {
-        name: "repo-remove",
-        description: "Remove repository from tracking list",
+        name: "monitor-stop",
+        description: "Stop a running monitor",
         options: [
           {
-            name: "repo",
-            description: "Repository name",
+            name: "name",
+            description: "Monitor name to stop",
             type: Discord.ApplicationCommandOptionType.STRING,
             required: true,
           },
         ],
       },
-      Effect.fn("repoRemove.command")(function* (ix) {
-        const repoName = ix.optionValue("repo");
+      Effect.fn("monitorStop.command")(function* (ix) {
+        const name = ix.optionValue("name");
 
-        yield* repoService.remove(repoName);
+        yield* monitorService.stopMonitor(name).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              type: Discord.InteractionCallbackTypes
+                .CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: `Failed to stop monitor: ${error.message}`,
+              },
+            }),
+          ),
+        );
 
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: "Repository removed from list successfully!",
+            content: `Stopped monitor: **${name}**`,
           },
         };
       }),
     );
 
-    const repoRemoveAll = Ix.global(
+    const monitorList = Ix.global(
       {
-        name: "repo-remove-all",
-        description: "Remove all repositories in tracking list",
+        name: "monitor-list",
+        description: "List all monitors and their status",
       },
-      Effect.fn("repoRemoveAll.command")(function* (ix) {
-        yield* repoService.removeAll();
+      Effect.fn("monitorList.command")(function* (ix) {
+        const monitors = yield* monitorService.listMonitors();
+
+        const content =
+          monitors.length === 0
+            ? "No monitors created yet. Use `/monitor-start` to add some!"
+            : `**All Monitors:**\n${monitors
+                .map(
+                  (monitor) =>
+                    `${monitor.status === "running" ? "🟢" : "🔴"} **${monitor.name}**: ${monitor.url}`,
+                )
+                .join("\n")}`;
 
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: "Removed all repositories successfully!",
+            content,
           },
         };
       }),
@@ -142,16 +153,20 @@ const BotLayer = Layer.effectDiscard(
     yield* registry.register(
       Ix.builder
         .add(ping)
-        .add(repoAdd)
-        .add(repoList)
-        .add(repoRemove)
-        .add(repoRemoveAll)
+        .add(monitorStart)
+        .add(monitorStop)
+        .add(monitorList)
         .catchAllCause(Effect.logError),
     );
 
-    yield* Effect.logInfo("Issue Net bot commands registered!");
+    yield* Effect.logInfo("Bot commands registered");
   }),
-).pipe(Layer.provide(RepositoryLive), Layer.provide(DiscordLayer));
+).pipe(
+  Layer.provide(MonitorServiceLive),
+  Layer.provide(GitHubServiceLive),
+  Layer.provide(DatabaseLive),
+  Layer.provide(DiscordLayer),
+);
 
 const main = Layer.launch(BotLayer).pipe(
   Logger.withMinimumLogLevel(LogLevel.Info),
