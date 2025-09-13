@@ -106,6 +106,7 @@ const BotLayer = Layer.effectDiscard(
             description: "Monitor name to stop",
             type: Discord.ApplicationCommandOptionType.STRING,
             required: true,
+            autocomplete: true,
           },
         ],
       },
@@ -129,6 +130,33 @@ const BotLayer = Layer.effectDiscard(
             content: `Stopped monitor: **${name}**`,
           },
         };
+      }),
+    );
+
+    const monitorStopAutocomplete = Ix.autocomplete(
+      Ix.option("monitor-stop", "name"),
+      Effect.gen(function* () {
+        const query = String(yield* Ix.focusedOptionValue);
+        const allMonitors = yield* monitorService.listMonitors();
+        const runningMonitors = allMonitors.filter(
+          (m) => m.status === "running",
+        );
+
+        const filtered = runningMonitors
+          .filter((monitor) =>
+            monitor.name.toLowerCase().includes(query.toLowerCase()),
+          )
+          .slice(0, 25)
+          .map((monitor) => ({
+            name: `${monitor.name} (${monitor.url})`,
+            value: monitor.name,
+          }));
+
+        return Ix.response({
+          type: Discord.InteractionCallbackTypes
+            .APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+          data: { choices: filtered },
+        });
       }),
     );
 
@@ -195,6 +223,7 @@ const BotLayer = Layer.effectDiscard(
         .add(ping)
         .add(monitorStart)
         .add(monitorStop)
+        .add(monitorStopAutocomplete)
         .add(monitorList)
         .catchAllCause(Effect.logError),
     );
