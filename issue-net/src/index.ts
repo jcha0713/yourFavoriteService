@@ -137,24 +137,7 @@ const BotLayer = Layer.effectDiscard(
               status: "running",
             });
 
-            const result = yield* Effect.either(
-              monitorService.startMonitor(monitor),
-            );
-
-            if (result._tag === "Left") {
-              const errorMessage =
-                result.left._tag === "DuplicateMonitorName"
-                  ? result.left.message
-                  : `Failed to start monitor: ${result.left.message}`;
-
-              return {
-                type: Discord.InteractionCallbackTypes
-                  .CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: errorMessage,
-                },
-              };
-            }
+            yield* monitorService.startMonitor(monitor);
 
             return {
               type: Discord.InteractionCallbackTypes
@@ -163,23 +146,46 @@ const BotLayer = Layer.effectDiscard(
                 content: `Started monitoring **${name}** for new issues`,
               },
             };
-          }),
+          }).pipe(
+            Effect.catchTags({
+              InvalidURL: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Invalid GitHub URL: ${error.url}`,
+                  },
+                }),
+              DuplicateMonitorName: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Monitor name **${error.name}** already exists. Please choose a different name.`,
+                  },
+                }),
+              DatabaseError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Database ${error.operation} failed: ${error.cause}`,
+                  },
+                }),
+              FiberStartError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Failed to start monitor **${error.monitorName}**: ${error.cause}`,
+                  },
+                }),
+            }),
+          ),
 
           restart: Effect.gen(function* () {
             const name = ix.optionValue("name");
-            const restartResult = yield* Effect.either(
-              monitorService.restartMonitor(name),
-            );
-
-            if (Either.isLeft(restartResult)) {
-              return {
-                type: Discord.InteractionCallbackTypes
-                  .CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `Failed to restart monitor: ${restartResult.left.message}`,
-                },
-              };
-            }
+            yield* monitorService.restartMonitor(name);
 
             return {
               type: Discord.InteractionCallbackTypes
@@ -188,24 +194,46 @@ const BotLayer = Layer.effectDiscard(
                 content: `Restarted monitoring **${name}** for new issues`,
               },
             };
-          }),
+          }).pipe(
+            Effect.catchTags({
+              MonitorNotFound: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Monitor **${error.name}** not found`,
+                  },
+                }),
+              InvalidURL: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Invalid GitHub URL: ${error.url}`,
+                  },
+                }),
+              FiberStartError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Failed to start monitor **${error.monitorName}**: ${error.cause}`,
+                  },
+                }),
+              DatabaseError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Database ${error.operation} failed: ${error.cause}`,
+                  },
+                }),
+            }),
+          ),
 
           stop: Effect.gen(function* () {
             const name = ix.optionValue("name");
-
-            const result = yield* Effect.either(
-              monitorService.stopMonitor(name),
-            );
-
-            if (result._tag === "Left") {
-              return {
-                type: Discord.InteractionCallbackTypes
-                  .CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `Failed to stop monitor: ${result.left.message}`,
-                },
-              };
-            }
+            yield* monitorService.stopMonitor(name);
 
             return {
               type: Discord.InteractionCallbackTypes
@@ -214,7 +242,26 @@ const BotLayer = Layer.effectDiscard(
                 content: `Stopped monitor: **${name}**`,
               },
             };
-          }),
+          }).pipe(
+            Effect.catchTags({
+              MonitorNotFound: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Monitor **${error.name}** not found`,
+                  },
+                }),
+              DatabaseError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Database ${error.operation} failed: ${error.cause}`,
+                  },
+                }),
+            }),
+          ),
 
           list: Effect.gen(function* () {
             const maybeFilter = ix.optionValueOptional("status");
@@ -229,8 +276,8 @@ const BotLayer = Layer.effectDiscard(
             const content =
               allMonitors.length === 0
                 ? Option.isSome(maybeFilter)
-                  ? `No monitors found with status: ${maybeFilter.value}`
-                  : "No monitors created yet. Use `/monitor start` to add some!"
+                  ? `[**ERROR**]: No monitors found with status: ${maybeFilter.value}`
+                  : "[**ERROR**]: No monitors created yet. Use `/monitor start` to add some!"
                 : `**All Monitors**\n${allMonitors
                     .map(
                       (monitor) =>
@@ -245,7 +292,18 @@ const BotLayer = Layer.effectDiscard(
                 content,
               },
             };
-          }),
+          }).pipe(
+            Effect.catchTags({
+              DatabaseError: (error) =>
+                Effect.succeed({
+                  type: Discord.InteractionCallbackTypes
+                    .CHANNEL_MESSAGE_WITH_SOURCE,
+                  data: {
+                    content: `[**ERROR**]: Database ${error.operation} failed: ${error.cause}`,
+                  },
+                }),
+            }),
+          ),
         });
       }),
     );

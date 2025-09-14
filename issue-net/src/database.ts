@@ -4,7 +4,7 @@ import { IssueMonitor } from "./monitor.js";
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   operation: string;
-  message: string;
+  cause: string;
 }> {}
 
 export interface DatabaseService {
@@ -68,7 +68,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "saveMonitor",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -83,7 +83,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "deleteMonitor",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -123,7 +123,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "getMonitor",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -157,7 +157,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "getAllMonitors",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -174,7 +174,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "updateMonitorLastCheck",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
 
@@ -194,7 +194,7 @@ export const DatabaseLive = Layer.effect(
           catch: (error) =>
             new DatabaseError({
               operation: "updateMonitorStatus",
-              message: error instanceof Error ? error.message : String(error),
+              cause: error instanceof Error ? error.message : String(error),
             }),
         }),
     };

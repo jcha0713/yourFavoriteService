@@ -13,7 +13,7 @@ import { GitHubService, type IssueFilter } from "./github";
 import { NotificationService } from "./notification";
 
 export class InvalidURL extends Data.TaggedError("InvalidURL")<{
-  message: string;
+  url: string;
 }> {}
 
 export class MonitorNotFound extends Data.TaggedError("MonitorNotFound")<{
@@ -22,14 +22,13 @@ export class MonitorNotFound extends Data.TaggedError("MonitorNotFound")<{
 
 export class FiberStartError extends Data.TaggedError("FiberStartError")<{
   monitorName: string;
-  message: string;
+  cause: string;
 }> {}
 
 export class DuplicateMonitorName extends Data.TaggedError(
   "DuplicateMonitorName",
 )<{
   name: string;
-  message: string;
 }> {}
 
 export class IssueMonitor extends Data.TaggedClass("IssueMonitor")<{
@@ -91,7 +90,7 @@ export const MonitorServiceLive = Layer.effect(
             `Invalid GitHub URL for monitor ${monitor.name} ${monitor.url}`,
           );
           return yield* new InvalidURL({
-            message: `**Invalid GitHub URL**: ${monitor.url}`,
+            url: monitor.url,
           });
         }
 
@@ -169,6 +168,8 @@ export const MonitorServiceLive = Layer.effect(
             repo,
           });
 
+          yield* Effect.logInfo(`Notification sent to ${channelId}`);
+
           const newTimestamp = new Date();
           yield* Ref.set(lastCheckRef, newTimestamp);
           yield* db.updateMonitorLastCheck(monitorName, newTimestamp);
@@ -201,7 +202,6 @@ export const MonitorServiceLive = Layer.effect(
           if (Option.isSome(maybeMonitor)) {
             return yield* new DuplicateMonitorName({
               name: monitor.name,
-              message: `Monitor name **${monitor.name}** already exists. Please choose a different name.`,
             });
           }
 
@@ -219,12 +219,11 @@ export const MonitorServiceLive = Layer.effect(
             Effect.mapError((error) => {
               if (
                 error._tag === "DatabaseError" &&
-                (error.message.includes("UNIQUE constraint failed") ||
-                  error.message.includes("PRIMARY KEY constraint failed"))
+                (error.cause.includes("UNIQUE constraint failed") ||
+                  error.cause.includes("PRIMARY KEY constraint failed"))
               ) {
                 return new DuplicateMonitorName({
                   name: monitor.name,
-                  message: `Found duplicate monitor when saving it`,
                 });
               }
               return error;

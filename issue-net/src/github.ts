@@ -1,12 +1,10 @@
 import { Octokit } from "@octokit/core";
 import { Context, Data, Effect, Layer } from "effect";
 
-export class NoGitHubToken extends Data.TaggedError("NoGitHubToken")<{
-  message: string;
-}> {}
+export class NoGitHubToken extends Data.TaggedError("NoGitHubToken")<{}> {}
 
 export class GitHubAPIFail extends Data.TaggedError("GitHubAPIFail")<{
-  message: string;
+  cause: string;
 }> {}
 
 export interface IssueFilter {
@@ -42,10 +40,10 @@ export const GitHubServiceLive = Layer.effect(
     const githubToken = Bun.env.GITHUB_TOKEN;
 
     if (!githubToken) {
-      return yield* new NoGitHubToken({
-        message:
-          "GitHub token required: Create token at https://github.com/settings/personal-access-tokens and add GITHUB_TOKEN=your_token to .env file",
-      });
+      yield* Effect.logError(
+        "GitHub token required: Create token at https://github.com/settings/personal-access-tokens and add GITHUB_TOKEN=your_token to .env file",
+      );
+      return yield* new NoGitHubToken();
     }
 
     const octokit = new Octokit({ auth: githubToken });
@@ -69,8 +67,7 @@ export const GitHubServiceLive = Layer.effect(
                 labels: filter?.labels?.join(","),
                 per_page: 100,
               }),
-            catch: (error) =>
-              new GitHubAPIFail({ message: `GitHub API failed: ${error}` }),
+            catch: (error) => new GitHubAPIFail({ cause: String(error) }),
           });
 
           const issues = response.data.map(
