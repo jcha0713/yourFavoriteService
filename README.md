@@ -1,4 +1,4 @@
-# issue-net
+# FlareBot
 
 To install dependencies:
 

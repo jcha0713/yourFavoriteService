@@ -1,7 +1,7 @@
 {
-  "name": "issue-net",
+  "name": "flarebot",
   "version": "0.0.1",
-  "description": "Discord bot for tracking GitHub issues",
+  "description": "Discord bot that signals important GitHub issues",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",

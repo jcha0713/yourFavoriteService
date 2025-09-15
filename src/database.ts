@@ -32,7 +32,7 @@ export const DatabaseService =
 export const DatabaseLive = Layer.effect(
   DatabaseService,
   Effect.gen(function* () {
-    const db = new Database("issue-net.db");
+    const db = new Database("flarebot.db");
 
     db.query(`
       CREATE TABLE IF NOT EXISTS monitors (
