@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts"
+    "dev": "bun --env-file=.env.development --watch src/index.ts",
+    "prod": "NODE_ENV=production bun src/index.ts"
   },
   "dependencies": {
     "@effect/language-service": "^0.38.4",
