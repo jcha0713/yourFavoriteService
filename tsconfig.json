@@ -31,5 +31,10 @@
         "name": "@effect/language-service"
       }
     ]
-  }
+  },
+  "references": [
+    {
+      "path": "./packages/monitoring-service"
+    }
+  ]
 }

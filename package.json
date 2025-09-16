@@ -1,29 +1,21 @@
 {
-  "name": "flarebot",
+  "name": "yourfavoriteservice",
   "version": "0.0.1",
-  "description": "Discord bot that signals important GitHub issues",
+  "description": "A collection of personal Discord bots for programming productivity",
   "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "start": "bun run src/index.ts",
-    "dev": "bun --env-file=.env.development --watch src/index.ts",
-    "prod": "NODE_ENV=production bun src/index.ts"
-  },
-  "dependencies": {
-    "@effect/language-service": "^0.38.4",
-    "@effect/platform": "^0.90.6",
-    "@effect/platform-bun": "^0.79.0",
-    "@effect/platform-node": "^0.96.1",
-    "dfx": "^0.124.1",
-    "effect": "^3.17.10",
-    "octokit": "^5.0.3"
+    "monitoring:dev": "cd packages/monitoring-service && bun --env-file=.env.development --watch src/index.ts",
+    "monitoring:prod": "cd packages/monitoring-service && NODE_ENV=production bun src/index.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
     "@types/bun": "latest",
     "bun-types": "latest"
   },
-  "module": "src/index.ts",
-  "private": true,
   "peerDependencies": {
     "typescript": "^5"
   }
